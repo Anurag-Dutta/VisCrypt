@@ -9,17 +9,19 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from tqdm import trange
 
 # -------------------
-# ResNet-34
+# ResNet-50
 # -------------------
-class BasicBlock(nn.Module):
-    expansion = 1
+class Bottleneck(nn.Module):
+    expansion = 4
     def __init__(self, in_channels, out_channels, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
+        self.conv3 = nn.Conv2d(out_channels, out_channels * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_channels * self.expansion)
+        self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
 
     def forward(self, x):
@@ -27,11 +29,15 @@ class BasicBlock(nn.Module):
         if self.downsample is not None:
             identity = self.downsample(x)
         out = self.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
+        out = self.relu(self.bn2(self.conv2(out)))
+        out = self.bn3(self.conv3(out))
         out += identity
         out = self.relu(out)
         return out
 
+# -------------------
+# ResNet Class
+# -------------------
 class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=2):
         super(ResNet, self).__init__()
@@ -91,11 +97,10 @@ def train_one_round(train_dir, test_dir, device):
     train_loader = DataLoader(train_data, batch_size=16, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=16, shuffle=False)
 
-    model = ResNet(BasicBlock, [3, 4, 6, 3], num_classes=2).to(device)  # ResNet-34
+    model = ResNet(Bottleneck, [3, 4, 6, 3], num_classes=2).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-    # Train
     start_train = time.time()
     model.train()
     for _ in range(10):  # 10 epochs
@@ -106,10 +111,8 @@ def train_one_round(train_dir, test_dir, device):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-    end_train = time.time()
-    train_time = end_train - start_train
+    train_time = time.time() - start_train
 
-    # Test
     start_test = time.time()
     model.eval()
     y_true, y_pred = [], []
@@ -120,8 +123,7 @@ def train_one_round(train_dir, test_dir, device):
             preds = torch.argmax(outputs, dim=1)
             y_true.extend(labels.cpu().numpy())
             y_pred.extend(preds.cpu().numpy())
-    end_test = time.time()
-    test_time = end_test - start_test
+    test_time = time.time() - start_test
 
     acc = accuracy_score(y_true, y_pred)
     prec = precision_score(y_true, y_pred, zero_division=0)
@@ -131,7 +133,7 @@ def train_one_round(train_dir, test_dir, device):
     return acc, prec, rec, f1, train_time, test_time
 
 # -------------------
-# Main Loop
+# Main loop
 # -------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

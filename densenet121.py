@@ -2,60 +2,103 @@ import os
 import time
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from tqdm import trange
+from collections import OrderedDict
 
 # -------------------
-# ResNet-101 (Bottleneck)
+# DenseNet-121
 # -------------------
-class Bottleneck(nn.Module):
-    expansion = 4
-    def __init__(self, in_channels, out_channels, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-        self.conv3 = nn.Conv2d(out_channels, out_channels * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_channels * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
+class _DenseLayer(nn.Module):
+    def __init__(self, num_input_features, growth_rate, bn_size=4, drop_rate=0.0):
+        super().__init__()
+        self.norm1 = nn.BatchNorm2d(num_input_features)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate,
+                               kernel_size=1, stride=1, bias=False)
+        self.norm2 = nn.BatchNorm2d(bn_size * growth_rate)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(bn_size * growth_rate, growth_rate,
+                               kernel_size=3, stride=1, padding=1, bias=False)
+        self.drop_rate = drop_rate
 
     def forward(self, x):
-        identity = x
-        if self.downsample is not None:
-            identity = self.downsample(x)
+        out = self.conv1(self.relu1(self.norm1(x)))
+        out = self.conv2(self.relu2(self.norm2(out)))
+        if self.drop_rate > 0.0:
+            out = F.dropout(out, p=self.drop_rate, training=self.training)
+        # Concatenate input with new features along channel dim
+        return torch.cat([x, out], 1)
 
-        out = self.relu(self.bn1(self.conv1(x)))
-        out = self.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
+class _DenseBlock(nn.Module):
+    def __init__(self, num_layers, num_input_features, growth_rate, bn_size=4, drop_rate=0.0):
+        super().__init__()
+        layers = []
+        num_features = num_input_features
+        for i in range(num_layers):
+            layer = _DenseLayer(num_features, growth_rate, bn_size, drop_rate)
+            layers.append(layer)
+            num_features += growth_rate
+        self.layers = nn.ModuleList(layers)
 
-        out += identity
-        out = self.relu(out)
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
-        return out
-
-class ResNet(nn.Module):
-    def __init__(self, block, layers, num_classes=2):
-        super(ResNet, self).__init__()
-        self.in_channels = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
+class _Transition(nn.Module):
+    def __init__(self, num_input_features, num_output_features):
+        super().__init__()
+        self.norm = nn.BatchNorm2d(num_input_features)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.conv = nn.Conv2d(num_input_features, num_output_features,
+                              kernel_size=1, stride=1, bias=False)
+        self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
 
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+    def forward(self, x):
+        x = self.conv(self.relu(self.norm(x)))
+        x = self.pool(x)
+        return x
 
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+class DenseNet121(nn.Module):
+    def __init__(self, in_channels=3, num_classes=2, growth_rate=32,
+                 block_config=(6, 12, 24, 16), bn_size=4, compression=0.5, drop_rate=0.0):
+        super().__init__()
 
-        # Optional: initialize weights (common practice)
+        # Initial convolution
+        num_init_features = 64
+        self.features = nn.Sequential(OrderedDict([
+            ('conv0', nn.Conv2d(in_channels, num_init_features, kernel_size=7, stride=2,
+                                padding=3, bias=False)),
+            ('norm0', nn.BatchNorm2d(num_init_features)),
+            ('relu0', nn.ReLU(inplace=True)),
+            ('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
+        ]))
+
+        # Dense blocks and transitions
+        num_features = num_init_features
+        for i, num_layers in enumerate(block_config):
+            block = _DenseBlock(num_layers, num_features, growth_rate, bn_size, drop_rate)
+            self.features.add_module(f'denseblock{i+1}', block)
+            num_features = num_features + num_layers * growth_rate
+            if i != len(block_config) - 1:
+                out_features = int(num_features * compression)
+                trans = _Transition(num_features, out_features)
+                self.features.add_module(f'transition{i+1}', trans)
+                num_features = out_features
+
+        # Final batch norm
+        self.features.add_module('norm_final', nn.BatchNorm2d(num_features))
+        self.relu_final = nn.ReLU(inplace=True)
+
+        # Classifier
+        self.classifier = nn.Linear(num_features, num_classes)
+
+        # He init
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -66,31 +109,12 @@ class ResNet(nn.Module):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
 
-    def _make_layer(self, block, out_channels, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.in_channels != out_channels * block.expansion:
-            downsample = nn.Sequential(
-                nn.Conv2d(self.in_channels, out_channels * block.expansion, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(out_channels * block.expansion)
-            )
-
-        layers = []
-        layers.append(block(self.in_channels, out_channels, stride, downsample))
-        self.in_channels = out_channels * block.expansion
-        for _ in range(1, blocks):
-            layers.append(block(self.in_channels, out_channels))
-        return nn.Sequential(*layers)
-
     def forward(self, x):
-        x = self.relu(self.bn1(self.conv1(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
+        x = self.features(x)
+        x = self.relu_final(x)
+        x = F.adaptive_avg_pool2d(x, (1, 1))
         x = torch.flatten(x, 1)
-        x = self.fc(x)
+        x = self.classifier(x)
         return x
 
 # -------------------
@@ -98,7 +122,7 @@ class ResNet(nn.Module):
 # -------------------
 def train_one_round(train_dir, test_dir, device):
     transform = transforms.Compose([
-        transforms.Resize((320, 320)),
+        transforms.Resize((224, 224)),  # standard input size
         transforms.ToTensor()
     ])
 
@@ -108,7 +132,7 @@ def train_one_round(train_dir, test_dir, device):
     train_loader = DataLoader(train_data, batch_size=16, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=16, shuffle=False)
 
-    model = ResNet(Bottleneck, [3, 4, 23, 3], num_classes=2).to(device)  # ResNet-101
+    model = DenseNet121(in_channels=3, num_classes=2).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -180,7 +204,7 @@ round_dirs = [
 ]
 
 for i in trange(len(round_dirs), desc="Rounds", ncols=100):
-    test_dir, train_dir = round_dirs[i]
+    train_dir, test_dir = round_dirs[i]
     acc, prec, rec, f1, t_time, tst_time = train_one_round(train_dir, test_dir, device)
     print(f"Round {i+1} — "
           f"Accuracy: {acc:.4f}, Precision: {prec:.4f}, Recall: {rec:.4f}, F1: {f1:.4f}, "

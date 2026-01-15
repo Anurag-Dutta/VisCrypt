@@ -9,7 +9,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from tqdm import trange
 
 # -------------------
-# ResNet-34
+# ResNet-18
 # -------------------
 class BasicBlock(nn.Module):
     expansion = 1
@@ -91,7 +91,7 @@ def train_one_round(train_dir, test_dir, device):
     train_loader = DataLoader(train_data, batch_size=16, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=16, shuffle=False)
 
-    model = ResNet(BasicBlock, [3, 4, 6, 3], num_classes=2).to(device)  # ResNet-34
+    model = ResNet(BasicBlock, [2, 2, 2, 2], num_classes=2).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 

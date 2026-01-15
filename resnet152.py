@@ -159,6 +159,24 @@ round_dirs = [
     ("round_4_test_rp", "round_4_train_rp"),
     ("round_5_test_rp", "round_5_train_rp"),
     ("round_6_test_rp", "round_6_train_rp"),
+    ("round_7_test_rp", "round_7_train_rp"),
+    ("round_8_test_rp", "round_8_train_rp"),
+    ("round_9_test_rp", "round_9_train_rp"),
+    ("round_10_test_rp", "round_10_train_rp"),
+    """
+    ("round_11_test_rp", "round_11_train_rp"),
+    ("round_12_test_rp", "round_12_train_rp"),
+    ("round_13_test_rp", "round_13_train_rp"),
+    ("round_14_test_rp", "round_14_train_rp"),
+    ("round_15_test_rp", "round_15_train_rp"),
+    ("round_16_test_rp", "round_16_train_rp"),
+    ("round_17_test_rp", "round_17_train_rp"),
+    ("round_18_test_rp", "round_18_train_rp"),
+    ("round_19_test_rp", "round_19_train_rp"),
+    ("round_20_test_rp", "round_20_train_rp"),
+    ("round_21_test_rp", "round_21_train_rp"),
+    ("round_22_test_rp", "round_22_train_rp"),
+    """
 ]
 
 for i in trange(len(round_dirs), desc="Rounds", ncols=100):

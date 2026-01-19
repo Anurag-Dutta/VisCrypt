@@ -18,10 +18,10 @@ Transforms 1D ciphertext differences → 2D texture images exposing:
 - **Isolated pixels**: Mixing quality
 
 ### 2. **State-of-the-Art Results**
-| Cipher | Max Rounds | VISCRYPT (10⁴) | Prior SOTA | Gain |
+| Cipher | Max Rounds | VISCRYPT (10⁶) | Prior SOTA | Gain |
 |--------|------------|----------------|------------|------|
 | **Ascon**  | **3**      | **99.98%**     | 98.61%    | **+1.4%** |
-| **Speck32/64** | **7** | **61.90%** | 53.13% | **+8.8%** |
+| **Speck32/64** | **8** | **51.60%** | 51.40% | **+0.4%** |
 
 **11% average improvement**
 ### 3. **No Novel Architectures Needed**

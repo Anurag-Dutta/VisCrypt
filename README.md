@@ -19,7 +19,7 @@ Transforms 1D ciphertext differences → 2D texture images exposing:
 | Ascon  | **3**      | **99.98%**| 98.61%    | +1.4%|
 | Speck32/64 | **7** | **61.90%**| 53.13% | **+8.8%**
 
-**11% average improvement**, **10x less data** (10⁴ samples)
+**11% average improvement**, **10x less data** (10⁶ samples)
 
 ### 3. **No Novel Architectures Needed**
 Standard **ResNet/DenseNet** backbones achieve SOTA via better representation

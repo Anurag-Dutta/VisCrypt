@@ -2,7 +2,6 @@
 
 **Recurrence-Based Signal Visualization for Texture-Driven Differential Cryptanalysis**
 
-[![Paper](https://img.shields.io/badge/Paper-IEEE%20SPL-blue)](paper.pdf)
 [![Dataset](https://img.shields.io/badge/Dataset-Zenodo-green)](https://zenodo.org/records/18223783)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
